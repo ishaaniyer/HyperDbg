@@ -1012,13 +1012,13 @@ DispatchEventHiddenHookPageReadWriteExecuteReadPreEvent(VIRTUAL_MACHINE_STATE * 
 
     //
     // Triggering the pre-event (for the read hooks)
-    //
+    //    
     EventTriggerResult = VmmCallbackTriggerEvents(HIDDEN_HOOK_READ,
                                                   VMM_CALLBACK_CALLING_STAGE_PRE_EVENT_EMULATION,
                                                   Context,
                                                   &PostEventTriggerReq,
                                                   VCpu->Regs);
-
+ 
     if (EventTriggerResult == VMM_CALLBACK_TRIGGERING_EVENT_STATUS_SUCCESSFUL_IGNORE_EVENT)
     {
         ShortCircuitingEvent = TRUE;

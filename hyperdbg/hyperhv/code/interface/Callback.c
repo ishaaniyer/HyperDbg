@@ -317,6 +317,7 @@ VmmCallbackUnhandledEptViolation(UINT32 CoreId,
                                  UINT64 ViolationQualification,
                                  UINT64 GuestPhysicalAddr)
 {
+     LogInfo("ReachedCallback");
     if (g_Callbacks.VmmCallbackCheckUnhandledEptViolations == NULL)
     {
         //
@@ -324,7 +325,7 @@ VmmCallbackUnhandledEptViolation(UINT32 CoreId,
         //
         return FALSE;
     }
-
+     LogInfo("Callbacknotfalse\n");
     return g_Callbacks.VmmCallbackCheckUnhandledEptViolations(CoreId, ViolationQualification, GuestPhysicalAddr);
 }
 

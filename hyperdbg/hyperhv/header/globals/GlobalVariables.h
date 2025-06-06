@@ -68,6 +68,22 @@ BOOLEAN g_IsEptHook2sDetourListInitialized;
  */
 BOOLEAN g_TransparentMode;
 
+
+/**
+ * @brief Rand Value for Fake PCI
+ * values in Transparent mode
+ *
+ */
+INT g_TransparentRand;
+
+/**
+ * @brief ECAM Base Address
+ * 
+ *
+ */
+ULONGLONG g_EcamBase;
+
+ULONGLONG g_EcamSize; 
 /**
  * @brief Local APIC Base
  *

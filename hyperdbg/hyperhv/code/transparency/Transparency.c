@@ -11,26 +11,161 @@
  */
 #include "pch.h"
 
+
+ // For srand()
+
 /**
  * @brief Hide debugger on transparent-mode (activate transparent-mode)
  *
  * @param TransparentModeRequest
  * @return BOOLEAN
  */
+
+#define ACPI_MCFG_SIGNATURE 0x4746434D // "MCFG"
+#define ECAM_MEMORY_PER_BUS (1024ULL * 1024ULL) 
+
+#pragma pack(push, 1) // Push current packing and set to 1-byte alignment
+
+// Standard ACPI Table Header
+
+
+// MCFG Table Structure (PCI Express memory mapped configuration space base address description table)
+typedef struct _MCFG_TABLE {
+    ULONG Signature;
+    ULONG Length;
+    UCHAR Revision;
+    UCHAR Checksum;
+    UCHAR OemId[6];
+    UCHAR OemTableId[8];
+    ULONG OemRevision;
+    ULONG CreatorId;
+    ULONG CreatorRevision;
+    ULONGLONG Reserved; // Reserved 8 bytes
+} MCFG_TABLE, *PMCFG_TABLE;
+
+// PCI Express Memory Mapped Configuration Space Base Address Allocation Structure
+typedef struct _MCFG_ALLOCATION_STRUCTURE {
+    ULONGLONG BaseAddress;      // Base address of the configuration space for this segment group
+    USHORT PciSegmentGroup;     // PCI segment group number
+    UCHAR StartBusNumber;       // Starting PCI bus number for this segment group
+    UCHAR EndBusNumber;         // Ending PCI bus number for this segment group
+    ULONG Reserved;             // Reserved 4 bytes
+} MCFG_ALLOCATION_STRUCTURE, *PMCFG_ALLOCATION_STRUCTURE;
+
+#pragma pack(pop) 
+
 BOOLEAN
 TransparentHideDebugger(PDEBUGGER_HIDE_AND_TRANSPARENT_DEBUGGER_MODE TransparentModeRequest)
 {
     //
     // Check whether the transparent-mode was already initialized or not
     //
+
     if (!g_TransparentMode)
     {
+
         //
         // Enable the transparent-mode
         //
         g_TransparentMode                    = TRUE;
         TransparentModeRequest->KernelStatus = DEBUGGER_OPERATION_WAS_SUCCESSFUL;
 
+        NTSTATUS status; // Will be set by ExGetSystemFirmwareTable but not explicitly checked for errors
+        ULONG tableBufferSize = 0;
+        PMCFG_TABLE mcfgTable = NULL;
+
+        PAGED_CODE(); // Ensure this code runs at IRQL < DISPATCH_LEVEL
+
+        
+        status = ExGetSystemFirmwareTable('ACPI', ACPI_MCFG_SIGNATURE, NULL, 0, &tableBufferSize);
+
+       
+        if (tableBufferSize > 0) // Basic check to prevent allocating 0 bytes if table not found initially
+        {
+            mcfgTable = (PMCFG_TABLE)ExAllocatePool2(POOL_FLAG_NON_PAGED, tableBufferSize, 'MCFG');
+        }
+       
+
+        // Step 3: Get the actual MCFG table.
+        // We assume mcfgTable is a valid pointer (allocation succeeded) and this call succeeds.
+        if (mcfgTable != NULL) // Proceed only if allocation was attempted and potentially successful
+        {
+            status = ExGetSystemFirmwareTable('ACPI', ACPI_MCFG_SIGNATURE, mcfgTable, tableBufferSize, &tableBufferSize);
+
+            // Step 4: Directly access the first allocation structure and print its base address.
+            // This assumes the table was successfully read and is correctly structured,
+            // and that there's at least one allocation structure.
+            ULONG allocationStructuresOffset = sizeof(MCFG_TABLE);
+            PMCFG_ALLOCATION_STRUCTURE AllocationStructure =
+                (PMCFG_ALLOCATION_STRUCTURE)((PUCHAR)mcfgTable + allocationStructuresOffset);
+
+            
+            
+            g_EcamBase = AllocationStructure->BaseAddress;
+            g_EcamSize = 4096 *  ((AllocationStructure->EndBusNumber - AllocationStructure->StartBusNumber) * DEVICE_MAX_NUM * FUNCTION_MAX_NUM);
+            
+            for (USHORT bus = AllocationStructure->StartBusNumber; bus <= AllocationStructure->EndBusNumber; bus++)
+        {
+            for (USHORT device = 0; device < DEVICE_MAX_NUM; device++)
+            {
+                
+
+                for (USHORT function = 0; function < FUNCTION_MAX_NUM; function++)
+                {
+                    
+                    QWORD retValue = PciReadCam(bus, device, function, 0, sizeof(QWORD));
+                    if (retValue != MAXDWORD64){
+                        
+                        ULONGLONG functionBaseAddress = AllocationStructure->BaseAddress +
+                                                        ((ULONGLONG)bus << 20) |
+                                                        ((ULONGLONG)device << 15) |
+                                                        ((ULONGLONG)function << 12);
+                        
+                        
+                         WORD VendorID = (WORD)(retValue & 0xFFFF);
+                         if (VendorID == 0x15AD){
+                            BOOLEAN retvalueofhookedpage = EptHookCreateHookPagePCIECAM(0x8086, 0x244E, functionBaseAddress);
+                           LogInfo("functionalbase: %llx, %d\n", functionBaseAddress, retvalueofhookedpage);
+
+                         }
+                    }
+                }
+              }
+            
+            }
+        
+        } else {
+            LogInfo("Failed to allocate memory for MCFG table or table not found initially.\n");
+ 
+         
+        }
+      
+        if (mcfgTable != NULL)
+        {
+            ExFreePoolWithTag(mcfgTable, 'MCFG');
+        }
+
+        if (g_TransparentRand == 0){  
+           
+            LARGE_INTEGER systemTime;
+            ULONG seedForPrng;
+            KeQuerySystemTimePrecise(&systemTime);
+            seedForPrng = systemTime.LowPart ^ systemTime.HighPart;
+            g_TransparentRand = RtlRandomEx(&seedForPrng);
+        }
+
+        
+        
+        BroadcastIoBitmapChangeAllCores(0xCFC);
+        BroadcastIoBitmapChangeAllCores(0xCFD);
+        BroadcastIoBitmapChangeAllCores(0xCFE);
+        BroadcastIoBitmapChangeAllCores(0xCFF);
+        BroadcastIoBitmapChangeAllCores(0xCF8);
+        //BroadcastIoBitmapChangeAllCores(0x5658);
+        //BroadcastIoBitmapChangeAllCores(0x5659);
+       
+      
+     
         //
         // Successfully enabled the transparent-mode
         //

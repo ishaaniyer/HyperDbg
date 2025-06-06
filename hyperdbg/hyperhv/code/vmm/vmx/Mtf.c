@@ -152,4 +152,5 @@ MtfHandleVmexit(VIRTUAL_MACHINE_STATE * VCpu)
         //
         VCpu->IgnoreMtfUnset = FALSE;
     }
+
 }

@@ -339,7 +339,7 @@ typedef struct _VIRTUAL_MACHINE_STATE
     UINT64                  HostGdt;                                            // host Global Descriptor Table (actual type is SEGMENT_DESCRIPTOR_32* or SEGMENT_DESCRIPTOR_64*)
     UINT64                  HostTss;                                            // host Task State Segment (actual type is TASK_STATE_SEGMENT_64*)
     UINT64                  HostInterruptStack;                                 // host interrupt RSP
-
+    UINT32                  LastPciConfigAddress;
     //
     // EPT Descriptors
     //

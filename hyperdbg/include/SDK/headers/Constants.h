@@ -257,7 +257,7 @@ const unsigned char BuildSignature[] = {
  * @brief Maximum number of initial pre-allocated EPT hooks
  *
  */
-#define MAXIMUM_NUMBER_OF_INITIAL_PREALLOCATED_EPT_HOOKS 5
+#define MAXIMUM_NUMBER_OF_INITIAL_PREALLOCATED_EPT_HOOKS 64
 
 //////////////////////////////////////////////////
 //             Instant Event Configs            //
@@ -267,7 +267,7 @@ const unsigned char BuildSignature[] = {
  * @brief Maximum number of (regular) instant events that are pre-allocated
  *
  */
-#define MAXIMUM_REGULAR_INSTANT_EVENTS 20
+#define MAXIMUM_REGULAR_INSTANT_EVENTS 72
 
 /**
  * @brief Maximum number of (big) instant events that are pre-allocated

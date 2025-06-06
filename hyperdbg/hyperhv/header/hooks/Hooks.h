@@ -175,6 +175,24 @@ PVOID(*ExAllocatePoolWithTagOrig)
 
 // ----------------------------------------------------------------------
 
+
+/**
+ * @brief Create EPT hook for the target page for PCI
+ *
+ * @param VCpu The virtual processor's state
+ * @param TargetAddress
+ * @param ProcessCr3
+ *
+ * @return BOOLEAN
+ */
+BOOLEAN
+EptHookCreateHookPagePCIECAM(WORD VendorID, WORD DeviceID, ULONGLONG PhysicalAddress);
+
+
+
+
+
+
 /**
  * @brief Hook in VMX Root Mode with hidden breakpoints (A pre-allocated buffer should be available)
  *

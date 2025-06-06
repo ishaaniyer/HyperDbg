@@ -77,6 +77,7 @@ EptGetMemoryType(SIZE_T PageFrameNumber, BOOLEAN IsLargePage)
 
     TargetMemoryType = (UINT8)-1;
 
+
     //
     // For each MTRR range
     //
@@ -827,6 +828,54 @@ EptLogicalProcessorInitialize(VOID)
     return TRUE;
 }
 
+BOOLEAN EptHandleECAMRange(VIRTUAL_MACHINE_STATE* VCpu,
+    VMX_EXIT_QUALIFICATION_EPT_VIOLATION ViolationQualification,
+    UINT64                               GuestPhysicalAddr,
+    EPT_HOOKED_PAGE_DETAIL *HookedEntry) {
+    PVOID TargetPage;
+
+    TargetPage = EptGetPml1Entry(VCpu->EptPageTable, HookedEntry->PhysicalBaseAddress);
+                    
+    EPT_PML1_ENTRY NewPage = HookedEntry->OriginalEntry;
+                            
+    UINT64 offset_in_page = GuestPhysicalAddr & 0xFFF;
+    
+    if (ViolationQualification.ExecuteAccess) {
+        LogInfo("entered exec\n");
+        return FALSE;
+    }
+    
+     if (ViolationQualification.WriteAccess) {
+         LogInfo("entered write\n");
+        NewPage.ReadAccess = 1;
+        NewPage.WriteAccess = 1;
+    }
+    
+    else if ((offset_in_page == 0) || (offset_in_page == 1) || (offset_in_page == 2) || (offset_in_page == 3)) {
+          LogInfo("entered read\n");
+       NewPage = HookedEntry->ChangedEntry;
+       NewPage.ReadAccess = 1;
+       NewPage.WriteAccess = 1;
+
+    }
+
+               
+     EptSetPML1AndInvalidateTLB(VCpu, TargetPage, NewPage, InveptSingleContext);
+                             
+    VCpu->MtfEptHookRestorePoint = HookedEntry;
+
+    HvEnableMtfAndChangeExternalInterruptState(VCpu);
+
+
+     HvSuppressRipIncrement(VCpu);
+
+    return TRUE;
+}
+
+
+
+
+
 /**
  * @brief Check if this exit is due to a violation caused by a currently hooked page
  * @details If the memory access attempt was RW and the page was marked executable, the page is swapped with
@@ -845,6 +894,7 @@ EptHandlePageHookExit(VIRTUAL_MACHINE_STATE *              VCpu,
                       VMX_EXIT_QUALIFICATION_EPT_VIOLATION ViolationQualification,
                       UINT64                               GuestPhysicalAddr)
 {
+    
     PVOID   TargetPage;
     UINT64  CurrentRip;
     UINT32  CurrentInstructionLength;
@@ -852,7 +902,7 @@ EptHandlePageHookExit(VIRTUAL_MACHINE_STATE *              VCpu,
     BOOLEAN ResultOfHandlingHook    = FALSE;
     BOOLEAN IgnoreReadOrWriteOrExec = FALSE;
     BOOLEAN IsExecViolation         = FALSE;
-
+   // LogInfo("Entered handlePage\n");
     LIST_FOR_EACH_LINK(g_EptState->HookedPagesList, EPT_HOOKED_PAGE_DETAIL, PageHookList, HookedEntry)
     {
         if (HookedEntry->PhysicalBaseAddress == (SIZE_T)PAGE_ALIGN(GuestPhysicalAddr))
@@ -875,8 +925,11 @@ EptHandlePageHookExit(VIRTUAL_MACHINE_STATE *              VCpu,
             // target range. For example we might hook 0x123b000 to 0x123b300 but the hook
             // happens on 0x123b4600, so we perform the necessary checks here
             //
-
-            if (GuestPhysicalAddr >= HookedEntry->StartOfTargetPhysicalAddress && GuestPhysicalAddr <= HookedEntry->EndOfTargetPhysicalAddress)
+            if (GuestPhysicalAddr >= g_EcamBase && GuestPhysicalAddr <g_EcamBase + g_EcamSize && !ViolationQualification.WriteAccess) {
+                
+                return EptHandleECAMRange(VCpu,ViolationQualification,GuestPhysicalAddr, HookedEntry);
+            }
+            else if (GuestPhysicalAddr >= HookedEntry->StartOfTargetPhysicalAddress && GuestPhysicalAddr <= HookedEntry->EndOfTargetPhysicalAddress)
             {
                 ResultOfHandlingHook = EptHookHandleHookedPage(VCpu,
                                                                HookedEntry,
@@ -897,6 +950,7 @@ EptHandlePageHookExit(VIRTUAL_MACHINE_STATE *              VCpu,
 
             if (ResultOfHandlingHook)
             {
+                
                 //
                 // Here we check whether the event should be ignored or not,
                 // if we don't apply the below restorations routines, the event
@@ -904,18 +958,22 @@ EptHandlePageHookExit(VIRTUAL_MACHINE_STATE *              VCpu,
                 //
                 if (!IgnoreReadOrWriteOrExec)
                 {
+             
                     //
                     // Pointer to the page entry in the page table
                     //
+                    
                     TargetPage = EptGetPml1Entry(VCpu->EptPageTable, HookedEntry->PhysicalBaseAddress);
-
+                   
                     //
                     // Restore to its original entry for one instruction
                     //
+                    
                     EptSetPML1AndInvalidateTLB(VCpu,
                                                TargetPage,
                                                HookedEntry->OriginalEntry,
                                                InveptSingleContext);
+                             
 
                     //
                     // Next we have to save the current hooked entry to restore on the next instruction's vm-exit
@@ -932,6 +990,9 @@ EptHandlePageHookExit(VIRTUAL_MACHINE_STATE *              VCpu,
                     // We have to set Monitor trap flag and give it the HookedEntry to work with
                     //
                     HvEnableMtfAndChangeExternalInterruptState(VCpu);
+                            
+
+                  
                 }
             }
 
@@ -946,7 +1007,7 @@ EptHandlePageHookExit(VIRTUAL_MACHINE_STATE *              VCpu,
             break;
         }
     }
-
+   
     //
     // Check whether the event should be ignored or not
     //
@@ -989,6 +1050,15 @@ EptHandlePageHookExit(VIRTUAL_MACHINE_STATE *              VCpu,
     return IsHandled;
 }
 
+
+
+
+
+
+
+
+
+
 /**
  * @brief Handle VM exits for EPT violations
  * @details Violations are thrown whenever an operation is performed on an EPT entry
@@ -1007,12 +1077,20 @@ EptHandleEptViolation(VIRTUAL_MACHINE_STATE * VCpu)
     //
     // Reading guest physical address
     //
+            
+
     __vmx_vmread(VMCS_GUEST_PHYSICAL_ADDRESS, &GuestPhysicalAddr);
+
+
+     
 
     if (ExecTrapHandleEptViolationVmexit(VCpu, &ViolationQualification))
     {
         return TRUE;
     }
+
+   
+
     else if (EptHandlePageHookExit(VCpu, ViolationQualification, GuestPhysicalAddr))
     {
         //
