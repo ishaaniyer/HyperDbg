@@ -121,13 +121,12 @@ TransparentHideDebugger(PDEBUGGER_HIDE_AND_TRANSPARENT_DEBUGGER_MODE Transparent
                                                         ((ULONGLONG)device << 15) |
                                                         ((ULONGLONG)function << 12);
                         
-                        
-                         WORD VendorID = (WORD)(retValue & 0xFFFF);
-                         if (VendorID == 0x15AD){
-                            BOOLEAN retvalueofhookedpage = EptHookCreateHookPagePCIECAM(0x8086, 0x244E, functionBaseAddress);
-                           LogInfo("functionalbase: %llx, %d\n", functionBaseAddress, retvalueofhookedpage);
-
-                         }
+                 
+                       
+                        //   BOOLEAN retvalueofhookedpage = EptHookCreateHookPagePCIECAM(bus,device,function, functionBaseAddress);
+                           LogInfo("functionalbase: %llx\n", functionBaseAddress);
+                           
+                         
                     }
                 }
               }
@@ -163,6 +162,8 @@ TransparentHideDebugger(PDEBUGGER_HIDE_AND_TRANSPARENT_DEBUGGER_MODE Transparent
         BroadcastIoBitmapChangeAllCores(0xCF8);
         //BroadcastIoBitmapChangeAllCores(0x5658);
         //BroadcastIoBitmapChangeAllCores(0x5659);
+
+        BroadcastSetExceptionBitmapAllCores(EXCEPTION_VECTOR_GENERAL_PROTECTION_FAULT);
        
       
      

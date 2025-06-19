@@ -143,7 +143,7 @@ EptHookAllocateExtraHookingPagesForMemoryMonitorsAndExecEptHooks(UINT32 Count)
  * @return BOOLEAN
  */
 BOOLEAN
-EptHookCreateHookPagePCIECAM(WORD VendorID, WORD DeviceID, ULONGLONG PhysicalAddress)
+EptHookCreateHookPagePCIECAM(USHORT bus, USHORT device, USHORT function, ULONGLONG PhysicalAddress)
 {
     ULONG                   ProcessorsCount;
     EPT_PML1_ENTRY          ChangedEntry;      
@@ -154,6 +154,84 @@ EptHookCreateHookPagePCIECAM(WORD VendorID, WORD DeviceID, ULONGLONG PhysicalAdd
     PEPT_HOOKED_PAGE_DETAIL HookedPage;
     
 
+
+    BOOLEAN isHandled = FALSE;
+    DWORD retValue = (DWORD)PciReadCam(bus, device, function, 0, sizeof(DWORD));
+    WORD vendorId = (WORD)(retValue & 0xFFFF);
+    WORD deviceId = (WORD)((retValue >> 16) & 0xFFFF);
+    
+      HookedPage = (EPT_HOOKED_PAGE_DETAIL *)PoolManagerRequestPool(TRACKING_HOOKED_PAGES, TRUE, sizeof(EPT_HOOKED_PAGE_DETAIL));
+      
+    if (!HookedPage)
+    {
+        VmmCallbackSetLastError(DEBUGGER_ERROR_PRE_ALLOCATED_BUFFER_IS_EMPTY);
+        LogInfo("Returning false due to lack of pool space\n");
+        return FALSE;
+    }
+
+    PVOID GvaMappedEcamPage = MmMapIoSpace((PHYSICAL_ADDRESS){ .QuadPart = PhysicalAddress }, PAGE_SIZE, MmNonCached);
+     RtlCopyBytes(&HookedPage->FakePageContents, GvaMappedEcamPage, PAGE_SIZE);
+        MmUnmapIoSpace(GvaMappedEcamPage, PAGE_SIZE);
+
+      DWORD firstDword = *(DWORD*)(&HookedPage->FakePageContents[0]);
+      LogInfo("first dword %llx\n", firstDword);
+        // 1. Check the primary Vendor ID at offset 0x00
+    if (vendorId == 0x15AD)
+        {
+            DWORD changedValue =  GetFakeID(deviceId);
+            *(DWORD*)(&HookedPage->FakePageContents[0]) = changedValue;
+            isHandled = TRUE;
+            
+        }
+
+    BYTE headerType = (BYTE)PciReadCam(bus, device, function, 0x0E, sizeof(BYTE));
+    if ((headerType & 0x7F) == 0x00)
+        {
+            // This is a Type 0 Header, so offset 0x2C is valid for Subsystem ID.
+            retValue = (DWORD)PciReadCam(bus, device, function, 0x2C, sizeof(DWORD));
+            vendorId = (WORD)(retValue & 0xFFFF);
+            deviceId = (WORD)((retValue >> 16) & 0xFFFF);
+            if (vendorId == 0x15AD)
+            {
+                retValue = GetFakeID(deviceId);
+                *(DWORD*)(&HookedPage->FakePageContents[0x2C]) = retValue;
+                isHandled = TRUE;
+            }
+        }
+     BYTE capPtr = (BYTE)PciReadCam(bus, device, function, 0x34, sizeof(BYTE));
+
+        // The loop continues as long as the pointer is not 0 and is within the valid config space range.
+        while (capPtr != 0x00 && capPtr > 0x3F)
+        {
+            WORD capHeader = (WORD)PciReadCam(bus, device, function, capPtr, sizeof(WORD));
+            BYTE capID = (BYTE)(capHeader & 0xFF);
+
+            // Check if the capability type is 0x0D (Bridge Subsystem ID)
+            if (capID == 0x0D)
+            {
+                // The SVID for this capability is at an offset of +4 from the capability pointer.
+                retValue = (DWORD)PciReadCam(bus, device, function, capPtr + 4, sizeof(DWORD));
+                vendorId = (WORD)(retValue & 0xFFFF);
+                deviceId = (WORD)((retValue >> 16) & 0xFFFF);
+                if (vendorId == 0x15AD)
+                {
+                    retValue = GetFakeID(deviceId);
+                    *(DWORD*)(&HookedPage->FakePageContents[capPtr + 4]) = retValue;
+                    isHandled = TRUE;
+                    // The vendor of this bridge subsystem capability is VMware.
+                    // Add your necessary code here.
+                }
+            }
+
+            // Move to the next capability in the linked list
+            capPtr = (BYTE)((capHeader >> 8) & 0xFF);
+        }
+
+
+        if (!isHandled) {
+            PoolManagerFreePool((UINT64)HookedPage);
+            return FALSE;
+        }
     //
     // Get number of processors
     //
@@ -179,16 +257,8 @@ EptHookCreateHookPagePCIECAM(WORD VendorID, WORD DeviceID, ULONGLONG PhysicalAdd
 
     //
     // Save the detail of hooked page to keep track of it
-    //
-    HookedPage = (EPT_HOOKED_PAGE_DETAIL *)PoolManagerRequestPool(TRACKING_HOOKED_PAGES, TRUE, sizeof(EPT_HOOKED_PAGE_DETAIL));
-
-    if (!HookedPage)
-    {
-        VmmCallbackSetLastError(DEBUGGER_ERROR_PRE_ALLOCATED_BUFFER_IS_EMPTY);
-        LogInfo("Returning false due to lack of pool space\n");
-        return FALSE;
-    }
-
+  
+   
     //
     // This is a hidden breakpoint
     //
@@ -242,8 +312,13 @@ EptHookCreateHookPagePCIECAM(WORD VendorID, WORD DeviceID, ULONGLONG PhysicalAdd
     //
     // we set the breakpoint on the fake page
     //
-    ((WORD *)HookedPage->FakePageContents)[0] = VendorID;
-    ((WORD *)HookedPage->FakePageContents)[1] = DeviceID;
+    
+
+
+    //((WORD *)HookedPage->FakePageContents)[0] =0x8086;
+    //((WORD *)HookedPage->FakePageContents)[1] = 0x1E31;
+    //HookedPage->FakePageContents = FakePageChangedValues;
+    
 
     //
     // Restore to original process
@@ -314,7 +389,7 @@ EptHookCreateHookPagePCIECAM(WORD VendorID, WORD DeviceID, ULONGLONG PhysicalAdd
         //
         ChangedEntry.ReadAccess    = 0;
         ChangedEntry.WriteAccess   = 0;
-        ChangedEntry.ExecuteAccess = 0;
+        ChangedEntry.ExecuteAccess = 1;
 
         //
         // Also set the current pfn to fake page
@@ -479,7 +554,6 @@ EptHookCreateHookPage(_Inout_ VIRTUAL_MACHINE_STATE * VCpu,
     // RtlCopyBytes(&HookedPage->FakePageContents, VirtualTarget, PAGE_SIZE);
     //
     MemoryMapperReadMemorySafe((UINT64)VirtualTarget, &HookedPage->FakePageContents, PAGE_SIZE);
-
     //
     // we set the breakpoint on the fake page
     //

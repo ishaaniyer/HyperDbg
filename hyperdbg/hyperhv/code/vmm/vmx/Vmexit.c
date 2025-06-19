@@ -24,7 +24,6 @@ VmxVmexitHandler(_Inout_ PGUEST_REGS GuestRegs)
     UINT32                  ExitReason = 0;
     BOOLEAN                 Result     = FALSE;
     VIRTUAL_MACHINE_STATE * VCpu       = NULL;
-
     //
     // *********** SEND MESSAGE AFTER WE SET THE STATE ***********
     //
@@ -202,6 +201,7 @@ VmxVmexitHandler(_Inout_ PGUEST_REGS GuestRegs)
     }
     case VMX_EXIT_REASON_EXCEPTION_OR_NMI:
     {
+        LogInfo("entered dispatch");
         //
         // Handle the EXCEPTION injection/emulation
         //

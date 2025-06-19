@@ -126,6 +126,13 @@ MtfHandleVmexit(VIRTUAL_MACHINE_STATE * VCpu)
 
         VCpu->IgnoreOneMtf = FALSE;
     }
+    
+    if (VCpu->RestoreGP) {
+        VCpu->RestoreGP = FALSE;
+        IsMtfHandled = TRUE;
+        HvSetExceptionBitmap(VCpu, EXCEPTION_VECTOR_GENERAL_PROTECTION_FAULT);
+        HvEnableAndCheckForPreviousExternalInterrupts(VCpu);
+    }
 
     //
     // Check for possible unhandled MTFs to avoid setting unusable MTFs

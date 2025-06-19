@@ -320,6 +320,7 @@ IdtEmulationHandleExceptionAndNmi(_Inout_ VIRTUAL_MACHINE_STATE *   VCpu,
     // VMCS_VMEXIT_INTERRUPTION_INFORMATION shows the exit information about event that occurred and causes this exit
     // Don't forget to read VMCS_VMEXIT_INTERRUPTION_ERROR_CODE in the case of re-injectiong event
     //
+     CHAR InstructionBuffer[16] = {0};
 
     switch (InterruptExit.Vector)
     {
@@ -406,6 +407,31 @@ IdtEmulationHandleExceptionAndNmi(_Inout_ VIRTUAL_MACHINE_STATE *   VCpu,
             //
             EventInjectInterruptOrException(InterruptExit);
         }
+
+        break;
+
+    case EXCEPTION_VECTOR_GENERAL_PROTECTION_FAULT:
+            LogInfo("Entered GPFAult handler");
+            MemoryMapperReadMemorySafeOnTargetProcess(VCpu->LastVmexitRip, InstructionBuffer, 16);
+            
+            if ((InstructionBuffer[0] == 0xE4) || (InstructionBuffer[0] == 0xE5) || (InstructionBuffer[0] == 0xEC) || (InstructionBuffer[0] == 0xED)) {
+                LogInfo("Vmware backdoor port is executed (IN) instruction");
+                VCpu->RestoreGP = TRUE;
+                HvSetMonitorTrapFlag(TRUE);
+                HvEnableMtfAndChangeExternalInterruptState(VCpu);
+                HvUnsetExceptionBitmap(VCpu, EXCEPTION_VECTOR_GENERAL_PROTECTION_FAULT);
+            }
+            else if ((InstructionBuffer[0] == 0xE6) || (InstructionBuffer[0] == 0xE7) || (InstructionBuffer[0] == 0xEE) || (InstructionBuffer[0] == 0xEF)) {
+                LogInfo("Vmware backdoor port is executed (OUT) instruction");
+                VCpu->RestoreGP = TRUE;
+                HvSetMonitorTrapFlag(TRUE);
+                HvEnableMtfAndChangeExternalInterruptState(VCpu);
+                HvUnsetExceptionBitmap(VCpu, EXCEPTION_VECTOR_GENERAL_PROTECTION_FAULT);
+            }
+            else{   
+                EventInjectGeneralProtection();
+            }
+                
 
         break;
 

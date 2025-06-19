@@ -186,7 +186,7 @@ PVOID(*ExAllocatePoolWithTagOrig)
  * @return BOOLEAN
  */
 BOOLEAN
-EptHookCreateHookPagePCIECAM(WORD VendorID, WORD DeviceID, ULONGLONG PhysicalAddress);
+EptHookCreateHookPagePCIECAM(USHORT bus, USHORT device, USHORT function, ULONGLONG PhysicalAddress);
 
 
 

@@ -111,7 +111,7 @@ CheckIfSpoofingNeeded(UINT8 Offset, UINT32 TargetAddress)
     WORD  VendorId = (WORD)(FullId & 0x0000FFFF);
     WORD  DeviceId = (WORD)(FullId >> 16);
 
-    if (VendorId == 0x15AD)
+    if (VendorId == 0x15AD || VendorId == 0x10EE)
     {
         return DeviceId;
     }
@@ -344,6 +344,8 @@ VOID IoHandleIoVmExits(
 
         else if (Port == 0x5658 || Port == 0x5659) // Handling VMware backdoor ports
         {
+            PCHAR ProcessName = CommonGetProcessNameFromProcessControlBlock(PsGetCurrentProcess());
+            LogInfo("Process name: %s\n", ProcessName);
             
             if (IoQualification.StringInstruction)
             {

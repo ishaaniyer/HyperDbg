@@ -830,7 +830,7 @@ EptLogicalProcessorInitialize(VOID)
 
 BOOLEAN EptHandleECAMRange(VIRTUAL_MACHINE_STATE* VCpu,
     VMX_EXIT_QUALIFICATION_EPT_VIOLATION ViolationQualification,
-    UINT64                               GuestPhysicalAddr,
+   
     EPT_HOOKED_PAGE_DETAIL *HookedEntry) {
     PVOID TargetPage;
 
@@ -838,7 +838,6 @@ BOOLEAN EptHandleECAMRange(VIRTUAL_MACHINE_STATE* VCpu,
                     
     EPT_PML1_ENTRY NewPage = HookedEntry->OriginalEntry;
                             
-    UINT64 offset_in_page = GuestPhysicalAddr & 0xFFF;
     
     if (ViolationQualification.ExecuteAccess) {
         LogInfo("entered exec\n");
@@ -851,8 +850,7 @@ BOOLEAN EptHandleECAMRange(VIRTUAL_MACHINE_STATE* VCpu,
         NewPage.WriteAccess = 1;
     }
     
-    else if ((offset_in_page == 0) || (offset_in_page == 1) || (offset_in_page == 2) || (offset_in_page == 3)) {
-          LogInfo("entered read\n");
+    else {
        NewPage = HookedEntry->ChangedEntry;
        NewPage.ReadAccess = 1;
        NewPage.WriteAccess = 1;
@@ -925,9 +923,9 @@ EptHandlePageHookExit(VIRTUAL_MACHINE_STATE *              VCpu,
             // target range. For example we might hook 0x123b000 to 0x123b300 but the hook
             // happens on 0x123b4600, so we perform the necessary checks here
             //
-            if (GuestPhysicalAddr >= g_EcamBase && GuestPhysicalAddr <g_EcamBase + g_EcamSize && !ViolationQualification.WriteAccess) {
+            if (GuestPhysicalAddr >= g_EcamBase && GuestPhysicalAddr <g_EcamBase + g_EcamSize) {
                 
-                return EptHandleECAMRange(VCpu,ViolationQualification,GuestPhysicalAddr, HookedEntry);
+                return EptHandleECAMRange(VCpu,ViolationQualification, HookedEntry);
             }
             else if (GuestPhysicalAddr >= HookedEntry->StartOfTargetPhysicalAddress && GuestPhysicalAddr <= HookedEntry->EndOfTargetPhysicalAddress)
             {
