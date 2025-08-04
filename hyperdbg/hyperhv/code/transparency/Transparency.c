@@ -11,26 +11,282 @@
  */
 #include "pch.h"
 
+
 /**
  * @brief Hide debugger on transparent-mode (activate transparent-mode)
  *
  * @param TransparentModeRequest
  * @return BOOLEAN
  */
+
+
+
+typedef struct _DEVICE_SPOOF_ENTRY {
+    const WCHAR* OriginalPattern;     // What to look for
+    const WCHAR* ReplacementPattern;  // What to replace it with
+    const WCHAR* DeviceType;          // PCI, USB, HDAUDIO
+} DEVICE_SPOOF_ENTRY, *PDEVICE_SPOOF_ENTRY;
+
+// TODO: Not using DeviceType anymore
+const DEVICE_SPOOF_ENTRY SPOOF_ENTRIES[] = {
+    // PCI Devices - VMware to Intel 
+    { L"VEN_15AD&DEV_0405", L"VEN_8086&DEV_244E", L"PCI" },
+    { L"VEN_15AD&DEV_0740", L"VEN_8086&DEV_244E", L"PCI" },
+    { L"VEN_15AD&DEV_0770", L"VEN_8086&DEV_244E", L"PCI" },
+    { L"VEN_15AD&DEV_0774", L"VEN_8086&DEV_244E", L"PCI" },
+    { L"VEN_15AD&DEV_077A", L"VEN_8086&DEV_244E", L"PCI" },
+    { L"VEN_15AD&DEV_0790", L"VEN_8086&DEV_244E", L"PCI" },
+    { L"VEN_15AD&DEV_07A0", L"VEN_8086&DEV_244E", L"PCI" },
+    { L"VEN_15AD&DEV_07E0", L"VEN_8086&DEV_244E", L"PCI" },
+    { L"VEN_15AD&DEV_07F0", L"VEN_8086&DEV_244E", L"PCI" },
+    { L"VEN_15AD&DEV_1977", L"VEN_8086&DEV_244E", L"PCI" },
+    { L"ROOT_HUB&VID15AD&PID0774", L"ROOT_HUB&VID8086&PID07DB", L"USB" },
+    { L"ROOT_HUB&VID_15AD&PID_0774", L"ROOT_HUB&VID_8086&PID_07DB", L"USB" },
+    { L"ROOT_HUB&VID15AD", L"ROOT_HUB&VID8086", L"USB" }, // Catch-all for any ROOT_HUB VMware devices
+
+    // Additional ROOT_HUB patterns for other VM vendors
+    { L"ROOT_HUB&VID80EE", L"ROOT_HUB&VID8086", L"USB" }, // VirtualBox
+    { L"ROOT_HUB&VID_80EE", L"ROOT_HUB&VID_8086", L"USB" }, // VirtualBox
+    { L"ROOT_HUB&VID1AF4", L"ROOT_HUB&VID8086", L"USB" }, // QEMU
+    { L"ROOT_HUB&VID_1AF4", L"ROOT_HUB&VID_8086", L"USB" },
+    // PCI Subsystem IDs - VMware to Intel 
+    { L"SUBSYS_040515AD", L"SUBSYS_244E8086", L"PCI" },
+    { L"SUBSYS_074015AD", L"SUBSYS_244E8086", L"PCI" },
+    { L"SUBSYS_077015AD", L"SUBSYS_244E8086", L"PCI" },
+    { L"SUBSYS_197615AD", L"SUBSYS_244E8086", L"PCI" },
+    { L"SUBSYS_077A15AD", L"SUBSYS_244E8086", L"PCI" },
+    { L"SUBSYS_079015AD", L"SUBSYS_244E8086", L"PCI" },
+    { L"SUBSYS_07A015AD", L"SUBSYS_244E8086", L"PCI" },
+    { L"SUBSYS_07E015AD", L"SUBSYS_244E8086", L"PCI" },
+    { L"SUBSYS_07F015AD", L"SUBSYS_244E8086", L"PCI" },
+    { L"SUBSYS_197715AD", L"SUBSYS_244E8086", L"PCI" },
+    { L"SUBSYS_15AD1975", L"SUBSYS_244E8086", L"PCI" },
+    
+    // HDAUDIO - VMware to Intel 
+    { L"VEN_15AD&DEV_1975", L"VEN_8086&DEV_244E", L"HDAUDIO" },
+    { L"SUBSYS_15AD1975", L"SUBSYS_244E8086", L"HDAUDIO" },
+    
+    // USB - VMware Root Hub 
+    { L"VID15AD&PID0774", L"VID8086&PID07DB", L"USB" },          
+    { L"VID_15AD&PID_0774", L"VID_8086&PID_07DB", L"USB" },       
+    
+    // USB - VMware Virtual USB Mouse/Tablet 
+    { L"VID_0E0F&PID_0003", L"VID_8086&PID_07DB", L"USB" },       
+    { L"VID0E0F&PID0003", L"VID8086&PID07DB", L"USB" },           
+    
+    // Additional VMware USB device patterns
+    { L"VID_15AD", L"VID_8086", L"USB" },                         
+    { L"VID15AD", L"VID8086", L"USB" },                          
+    
+    // VirtualBox entries 
+    { L"VEN_80EE", L"VEN_8086", L"PCI" },
+    { L"VID_80EE", L"VID_8086", L"USB" },
+    { L"VID80EE", L"VID8086", L"USB" },
+    
+    // QEMU entries
+    { L"VEN_1AF4", L"VEN_8086", L"PCI" },
+    { L"VID_1AF4", L"VID_8086", L"USB" },
+    { L"VID1AF4", L"VID8086", L"USB" },
+};
+
+const ULONG NUM_SPOOF_ENTRIES = sizeof(SPOOF_ENTRIES) / sizeof(DEVICE_SPOOF_ENTRY);
+
+NTSTATUS SpoofHardwareIds(HANDLE hDeviceKey);
+VOID ScanDeviceInstances(HANDLE hDeviceTypeKey);
+VOID ScanAndModify(PUNICODE_STRING RootPath);
+BOOLEAN ShouldProcessDevice(PWCHAR DeviceName);
+
+
+BOOLEAN ShouldProcessDevice(PWCHAR DeviceName) {
+    // Check if this device contains any VMware, VirtualBox, or QEMU identifiers
+    return (wcsstr(DeviceName, L"15AD") != NULL || // VMware
+            wcsstr(DeviceName, L"80EE") != NULL || // VirtualBox  
+            wcsstr(DeviceName, L"1AF4") != NULL || // QEMU
+            wcsstr(DeviceName, L"0E0F") != NULL || // VMware USB devices
+            wcsstr(DeviceName, L"ROOT_HUB") != NULL); // ROOT_HUB devices
+}
+
+//Spoofs Hardware IDs of the Windows Registry
+NTSTATUS SpoofHardwareIds(HANDLE hDeviceKey) {
+    NTSTATUS status;
+    PKEY_VALUE_PARTIAL_INFORMATION pValueInfo = NULL;
+    ULONG valueSize = 0;
+    UNICODE_STRING hardwareIdValueName;
+
+    RtlInitUnicodeString(&hardwareIdValueName, L"HardwareID");
+
+    status = ZwQueryValueKey(hDeviceKey, &hardwareIdValueName, KeyValuePartialInformation, NULL, 0, &valueSize);
+    if (status != STATUS_BUFFER_TOO_SMALL && status != STATUS_BUFFER_OVERFLOW) {
+        return status;
+    }
+
+    pValueInfo = (PKEY_VALUE_PARTIAL_INFORMATION)ExAllocatePool2(POOL_FLAG_PAGED, valueSize, 'Valu');
+    if (!pValueInfo) {
+        return STATUS_INSUFFICIENT_RESOURCES;
+    }
+
+    status = ZwQueryValueKey(hDeviceKey, &hardwareIdValueName, KeyValuePartialInformation, pValueInfo, valueSize, &valueSize);
+    if (!NT_SUCCESS(status)) {
+        ExFreePoolWithTag(pValueInfo, 'Valu');
+        return status;
+    }
+
+    PWCHAR currentSrc = (PWCHAR)pValueInfo->Data;
+    BOOLEAN wasModified = FALSE;
+
+    // Process each string in the REG_MULTI_SZ
+    while (*currentSrc) {
+        // Apply all applicable transformations to this string
+        for (ULONG i = 0; i < NUM_SPOOF_ENTRIES; i++) {
+            PWCHAR found = wcsstr(currentSrc, SPOOF_ENTRIES[i].OriginalPattern);
+            if (found) {
+                size_t originalLen = wcslen(SPOOF_ENTRIES[i].OriginalPattern);                     
+                // We assume original len == replacement len (True for entries in current spoof table)
+                RtlCopyMemory(found, SPOOF_ENTRIES[i].ReplacementPattern, originalLen * sizeof(WCHAR));
+                wasModified = TRUE;                                
+            }
+        }
+        currentSrc += wcslen(currentSrc) + 1; 
+    }
+
+    if (wasModified) {
+        status = ZwSetValueKey(hDeviceKey, &hardwareIdValueName, 0, REG_MULTI_SZ, pValueInfo->Data, pValueInfo->DataLength);
+        if (!NT_SUCCESS(status)) {
+           DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, "[-] Failed to write new HardwareID value. Status: 0x%X\n", status);
+        }
+    }
+
+    ExFreePoolWithTag(pValueInfo, 'Valu');
+    
+    return STATUS_SUCCESS;
+}
+
+//Scan devices
+VOID ScanDeviceInstances(HANDLE hDeviceTypeKey) {
+    NTSTATUS status;
+    ULONG index = 0;
+    ULONG resultLength;
+    UCHAR buffer[512];
+    PKEY_BASIC_INFORMATION pKeyInfo = (PKEY_BASIC_INFORMATION)buffer;
+    
+    status = ZwEnumerateKey(hDeviceTypeKey, index, KeyBasicInformation, pKeyInfo, sizeof(buffer), &resultLength);
+    while (NT_SUCCESS(status)) {
+        pKeyInfo->Name[pKeyInfo->NameLength / sizeof(WCHAR)] = L'\0';
+        
+        UNICODE_STRING instanceKeyName;
+        RtlInitUnicodeString(&instanceKeyName, pKeyInfo->Name);
+        
+        OBJECT_ATTRIBUTES instanceObjAttr;
+        HANDLE hInstanceKey;
+        InitializeObjectAttributes(&instanceObjAttr, &instanceKeyName, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, hDeviceTypeKey, NULL);
+        
+        status = ZwOpenKey(&hInstanceKey, KEY_READ | KEY_WRITE, &instanceObjAttr);
+        if (NT_SUCCESS(status)) {
+            SpoofHardwareIds(hInstanceKey);
+            ZwClose(hInstanceKey);
+        }
+
+        index++;
+        status = ZwEnumerateKey(hDeviceTypeKey, index, KeyBasicInformation, pKeyInfo, sizeof(buffer), &resultLength);
+    }
+}
+
+VOID ScanAndModify(PUNICODE_STRING RootPath) {
+    OBJECT_ATTRIBUTES objAttr;
+    HANDLE hRootKey;
+    NTSTATUS status;
+
+    InitializeObjectAttributes(&objAttr, RootPath, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, NULL, NULL);
+    status = ZwOpenKey(&hRootKey, KEY_READ, &objAttr);
+    if (!NT_SUCCESS(status)) {
+        return;
+    }
+
+    
+    ULONG index = 0;
+    ULONG resultLength;
+    UCHAR buffer[512]; 
+    PKEY_BASIC_INFORMATION pKeyInfo = (PKEY_BASIC_INFORMATION)buffer;
+    
+    // Enumerate device type keys
+    status = ZwEnumerateKey(hRootKey, index, KeyBasicInformation, pKeyInfo, sizeof(buffer), &resultLength);
+    while (NT_SUCCESS(status)) {
+        pKeyInfo->Name[pKeyInfo->NameLength / sizeof(WCHAR)] = L'\0';
+
+        // Check if this device should be processed
+        if (ShouldProcessDevice(pKeyInfo->Name)) {
+            DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_INFO_LEVEL, "[!] Target device found: %ws\n", pKeyInfo->Name);
+            
+            UNICODE_STRING deviceTypeKeyName;
+            RtlInitUnicodeString(&deviceTypeKeyName, pKeyInfo->Name);
+            
+            OBJECT_ATTRIBUTES deviceTypeObjAttr;
+            HANDLE hDeviceTypeKey;
+            InitializeObjectAttributes(&deviceTypeObjAttr, &deviceTypeKeyName, OBJ_CASE_INSENSITIVE | OBJ_KERNEL_HANDLE, hRootKey, NULL);
+            
+            status = ZwOpenKey(&hDeviceTypeKey, KEY_READ | KEY_WRITE, &deviceTypeObjAttr);
+            if (NT_SUCCESS(status)) {
+                ScanDeviceInstances(hDeviceTypeKey);
+                ZwClose(hDeviceTypeKey);
+            } else {
+                DbgPrintEx(DPFLTR_IHVDRIVER_ID, DPFLTR_ERROR_LEVEL, "[-] Failed to open device type key: %ws. Status: 0x%X\n", pKeyInfo->Name, status);
+            }
+        }
+
+        index++;
+        status = ZwEnumerateKey(hRootKey, index, KeyBasicInformation, pKeyInfo, sizeof(buffer), &resultLength);
+    }
+
+    ZwClose(hRootKey);
+}
+
+
+
 BOOLEAN
 TransparentHideDebugger(PDEBUGGER_HIDE_AND_TRANSPARENT_DEBUGGER_MODE TransparentModeRequest)
 {
     //
     // Check whether the transparent-mode was already initialized or not
     //
+
     if (!g_TransparentMode)
     {
+
         //
         // Enable the transparent-mode
         //
         g_TransparentMode                    = TRUE;
         TransparentModeRequest->KernelStatus = DEBUGGER_OPERATION_WAS_SUCCESSFUL;
+        PAGED_CODE(); // Ensure this code runs at IRQL < DISPATCH_LEVEL
 
+        UNICODE_STRING pciPath, usbPath, hdAudioPath;
+
+        RtlInitUnicodeString(&pciPath, L"\\Registry\\Machine\\SYSTEM\\CurrentControlSet\\Enum\\PCI");
+        RtlInitUnicodeString(&usbPath, L"\\Registry\\Machine\\SYSTEM\\CurrentControlSet\\Enum\\USB");
+        RtlInitUnicodeString(&hdAudioPath, L"\\Registry\\Machine\\SYSTEM\\CurrentControlSet\\Enum\\HDAUDIO");
+
+        ScanAndModify(&pciPath);
+        ScanAndModify(&usbPath);
+        ScanAndModify(&hdAudioPath);
+
+        if (g_TransparentRand == 0){  
+            LARGE_INTEGER systemTime;
+            ULONG seedForPrng;
+            KeQuerySystemTimePrecise(&systemTime);
+            seedForPrng = systemTime.LowPart ^ systemTime.HighPart;
+            g_TransparentRand = RtlRandomEx(&seedForPrng);
+        }
+
+
+        BroadcastIoBitmapChangeAllCores(0xCFC);
+        BroadcastIoBitmapChangeAllCores(0xCFD);
+        BroadcastIoBitmapChangeAllCores(0xCFE);
+        BroadcastIoBitmapChangeAllCores(0xCFF);
+        BroadcastIoBitmapChangeAllCores(0xCF8);
+        BroadcastIoBitmapChangeAllCores(0x5658);
+        BroadcastIoBitmapChangeAllCores(0x5659);
+     
+        BroadcastSetExceptionBitmapAllCores(EXCEPTION_VECTOR_GENERAL_PROTECTION_FAULT);
         //
         // Successfully enabled the transparent-mode
         //

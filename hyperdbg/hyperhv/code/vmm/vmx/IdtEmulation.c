@@ -320,6 +320,7 @@ IdtEmulationHandleExceptionAndNmi(_Inout_ VIRTUAL_MACHINE_STATE *   VCpu,
     // VMCS_VMEXIT_INTERRUPTION_INFORMATION shows the exit information about event that occurred and causes this exit
     // Don't forget to read VMCS_VMEXIT_INTERRUPTION_ERROR_CODE in the case of re-injectiong event
     //
+     CHAR InstructionBuffer[16] = {0};
 
     switch (InterruptExit.Vector)
     {
@@ -408,6 +409,63 @@ IdtEmulationHandleExceptionAndNmi(_Inout_ VIRTUAL_MACHINE_STATE *   VCpu,
         }
 
         break;
+
+   case EXCEPTION_VECTOR_GENERAL_PROTECTION_FAULT:
+{
+   
+
+    UINT16 InstructionLength = 0;
+    BOOLEAN IsIoInstructionHandled = FALSE; 
+
+    MemoryMapperReadMemorySafeOnTargetProcess(VCpu->LastVmexitRip, InstructionBuffer, 16);
+
+   
+    UINT16 Port = (UINT16)VCpu->Regs->rdx;
+    
+    if (Port == 0x5658 || Port == 0x5659)
+    {
+        if ((unsigned char)InstructionBuffer[0] == 0xEC || (unsigned char)InstructionBuffer[0] == 0xED)
+        {
+            LogInfo("VMware backdoor 'IN' instruction detected on port 0x%hX.", Port);
+
+            if (VCpu->Regs->rax == 0x564D5868) // Check for the magic number
+            {
+                VCpu->Regs->rax = 0xFFFFFFFF; // Bare-metal response
+                VCpu->Regs->rbx = 0;
+                VCpu->Regs->rcx = 0;
+                VCpu->Regs->rdx = 0;
+            }
+            InstructionLength = 1;
+            IsIoInstructionHandled = TRUE;
+        }
+        else if ((unsigned char)InstructionBuffer[0] == 0xEE || (unsigned char)InstructionBuffer[0] == 0xEF)
+        {
+            LogInfo("VMware backdoor 'OUT' instruction detected on port 0x%hX. Ignoring.", Port);
+            InstructionLength = 1;
+            IsIoInstructionHandled = TRUE;
+        }
+    }
+
+    if (IsIoInstructionHandled)
+    {
+        LogInfo("I/O instruction was handled. Advancing RIP by %u.", InstructionLength);
+
+        // Get the current RIP
+        UINT64 CurrentRip = HvGetRip();
+        LogInfo("Current RIP: 0x%llx\n", CurrentRip);
+    
+        // Set the new RIP
+        HvSetRip(CurrentRip + InstructionLength);
+    }
+    else
+    {
+        
+        LogInfo("Not a backdoor instruction, reinjecting #GP to guest.");
+        EventInjectGeneralProtection();
+    }
+
+    break;
+}
 
     default:
 

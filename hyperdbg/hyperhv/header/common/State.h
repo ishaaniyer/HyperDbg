@@ -297,6 +297,7 @@ typedef struct _VIRTUAL_MACHINE_STATE
     BOOLEAN      IncrementRip;                                                  // Checks whether it has to redo the previous instruction or not (it used mainly in Ept routines)
     BOOLEAN      HasLaunched;                                                   // Indicate whether the core is virtualized or not
     BOOLEAN      IgnoreMtfUnset;                                                // Indicate whether the core should ignore unsetting the MTF or not
+    BOOLEAN      RestoreGP;                                                  
     BOOLEAN      WaitForImmediateVmexit;                                        // Whether the current core is waiting for an immediate vm-exit or not
     BOOLEAN      EnableExternalInterruptsOnContinue;                            // Whether to enable external interrupts on the continue  or not
     BOOLEAN      EnableExternalInterruptsOnContinueMtf;                         // Whether to enable external interrupts on the continue state of MTF or not
@@ -339,7 +340,7 @@ typedef struct _VIRTUAL_MACHINE_STATE
     UINT64                  HostGdt;                                            // host Global Descriptor Table (actual type is SEGMENT_DESCRIPTOR_32* or SEGMENT_DESCRIPTOR_64*)
     UINT64                  HostTss;                                            // host Task State Segment (actual type is TASK_STATE_SEGMENT_64*)
     UINT64                  HostInterruptStack;                                 // host interrupt RSP
-
+    UINT32                  LastPciConfigAddress;
     //
     // EPT Descriptors
     //

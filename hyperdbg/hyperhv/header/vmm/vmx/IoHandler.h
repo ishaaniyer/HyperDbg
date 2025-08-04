@@ -163,6 +163,12 @@ IoOutDwordString(UINT16 port, UINT32 * data, UINT32 count)
 //                 Functions	    			//
 //////////////////////////////////////////////////
 
+UINT16
+CheckIfSpoofingNeeded(UINT8 Offset, UINT32 TargetAddress);
+
+UINT32
+GetFakeID(UINT16 DeviceId);
+
 VOID
 IoHandleIoVmExits(VIRTUAL_MACHINE_STATE * VCpu, VMX_EXIT_QUALIFICATION_IO_INSTRUCTION IoQualification, RFLAGS Flags);
 
